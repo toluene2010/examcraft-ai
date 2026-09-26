@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f1f5f9"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- Exam A4 Sheet -->
+  <g filter="url(#shadow)">
+    <rect x="110" y="80" width="292" height="352" rx="16" fill="url(#sheet)"/>
+    <path d="M338 80 L402 144 L338 144 Z" fill="#cbd5e1"/>
+    
+    <!-- Header banner on paper -->
+    <rect x="146" y="120" width="160" height="14" rx="4" fill="#1e3a8a"/>
+    <rect x="146" y="144" width="110" height="8" rx="4" fill="#94a3b8"/>
+    
+    <!-- Exam lines & Questions mock -->
+    <rect x="146" y="180" width="220" height="6" rx="3" fill="#64748b"/>
+    <rect x="146" y="196" width="180" height="6" rx="3" fill="#cbd5e1"/>
+    <rect x="170" y="218" width="80" height="6" rx="3" fill="#94a3b8"/>
+    <circle cx="156" cy="221" r="4" fill="#2563eb"/>
+    <rect x="170" y="236" width="110" height="6" rx="3" fill="#94a3b8"/>
+    <circle cx="156" cy="239" r="4" fill="#94a3b8"/>
+    
+    <rect x="146" y="266" width="220" height="6" rx="3" fill="#64748b"/>
+    <rect x="146" y="282" width="160" height="6" rx="3" fill="#cbd5e1"/>
+    <rect x="170" y="304" width="90" height="6" rx="3" fill="#94a3b8"/>
+    <circle cx="156" cy="307" r="4" fill="#94a3b8"/>
+    <rect x="170" y="322" width="70" height="6" rx="3" fill="#94a3b8"/>
+    <circle cx="156" cy="325" r="4" fill="#2563eb"/>
+
+    <!-- Answer Key Badge -->
+    <rect x="146" y="360" width="220" height="36" rx="8" fill="#e0e7ff"/>
+    <rect x="162" y="374" width="70" height="8" rx="4" fill="#4338ca"/>
+    <rect x="246" y="374" width="100" height="8" rx="4" fill="#6366f1"/>
+  </g>
+
+  <!-- Speech Microphone Floating Orb Badge -->
+  <g filter="url(#shadow)">
+    <circle cx="370" cy="380" r="54" fill="url(#accent)"/>
+    <!-- Mic icon -->
+    <rect x="362" y="356" width="16" height="28" rx="8" fill="#ffffff"/>
+    <path d="M352 374 C352 384 360 392 370 392 C380 392 388 384 388 374" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <line x1="370" y1="392" x2="370" y2="404" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <line x1="360" y1="404" x2="380" y2="404" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>

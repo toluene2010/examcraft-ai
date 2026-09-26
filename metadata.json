@@ -1,0 +1,6 @@
+{
+  "name": "ExamCraft AI - Speech & Textbook Exam Generator",
+  "description": "Convert speech to text in real time and generate exam questions from uploaded textbooks or notebooks, formatted directly for A4 paper with answer keys at the end.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

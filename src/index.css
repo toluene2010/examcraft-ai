@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@layer base {
+  @page {
+    size: A4 portrait;
+    margin: 14mm 12mm 14mm 12mm;
+  }
+
+  @media print {
+    html, body {
+      background: #ffffff !important;
+      color: #000000 !important;
+      font-size: 10.5pt;
+      line-height: 1.35;
+      padding: 0 !important;
+      margin: 0 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* Suppress web app UI chrome during printing */
+    .no-print,
+    header,
+    nav,
+    footer,
+    button,
+    select,
+    input[type="file"],
+    .offline-indicator {
+      display: none !important;
+    }
+
+    /* Expand A4 container to natural page dimensions */
+    .a4-paper-container {
+      width: 100% !important;
+      min-height: auto !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+
+    /* Page break helpers */
+    .page-break {
+      page-break-before: always !important;
+      break-before: page !important;
+    }
+
+    .avoid-break {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+  }
+}
