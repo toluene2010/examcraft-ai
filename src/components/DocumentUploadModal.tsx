@@ -1,68 +1,87 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  Upload,
-  FileText,
-  Image as ImageIcon,
-  Trash2,
-  Sparkles,
   X,
-  BookOpen,
+  Upload,
   Camera,
-  CheckCircle2,
+  FileText,
+  Sparkles,
   AlertCircle,
-  HelpCircle
+  CheckCircle2,
+  Trash2,
+  Image as ImageIcon,
+  Sliders,
+  HelpCircle,
+  FileCheck,
+  BookOpen
 } from 'lucide-react';
-import { GenerateOptions, QuestionType, TextbookUploadPayload } from '../types/exam';
 import { generateQuestionsFromMaterial } from '../services/api';
+import { ExamQuestion, GenerateOptions, QuestionType } from '../types/exam';
 
 interface DocumentUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onQuestionsGenerated: (
-    questions: any[],
-    metadataUpdates?: { subject?: string; totalMarks?: number; durationMinutes?: number }
+    questions: ExamQuestion[],
+    updates?: { subject?: string; totalMarks?: number; durationMinutes?: number }
   ) => void;
-  initialSubject: string;
-  initialGrade: string;
+  initialSubject?: string;
+  initialGrade?: string;
 }
 
 export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
   isOpen,
   onClose,
   onQuestionsGenerated,
-  initialSubject,
-  initialGrade
+  initialSubject = '',
+  initialGrade = ''
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'text'>('upload');
-  const [files, setFiles] = useState<TextbookUploadPayload['images']>([]);
+  const [files, setFiles] = useState<
+    Array<{ name: string; mimeType: string; data: string; previewUrl?: string }>
+  >([]);
   const [textContent, setTextContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [progressStage, setProgressStage] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [progressStage, setProgressStage] = useState<string>('');
 
-  // Generation options
+  // Form options
   const [options, setOptions] = useState<GenerateOptions>({
     examTitle: 'Term Examination',
-    subject: initialSubject || 'Science & Technology',
-    gradeLevel: initialGrade || 'Grade 10',
+    subject: initialSubject || 'General Science',
+    gradeLevel: initialGrade || 'Secondary / High School',
     questionCount: 10,
     questionTypes: ['multiple_choice', 'short_answer'],
-    difficulty: 'mixed',
+    difficulty: 'medium',
     bloomsTaxonomy: 'application_and_understanding',
     additionalInstructions: ''
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (initialSubject) setOptions((prev) => ({ ...prev, subject: initialSubject }));
+    if (initialGrade) setOptions((prev) => ({ ...prev, gradeLevel: initialGrade }));
+  }, [initialSubject, initialGrade]);
+
+  // Clean up previews on unmount
+  useEffect(() => {
+    return () => {
+      files.forEach((f) => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      });
+    };
+  }, [files]);
 
   if (!isOpen) return null;
 
-  const handleFileSelection = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = e.target.files;
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     setError(null);
-    const newImages: TextbookUploadPayload['images'] = [];
+    const newImages: typeof files = [];
 
     for (let i = 0; i < selectedFiles.length; i++) {
       const file = selectedFiles[i];
@@ -128,7 +147,10 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
 
   const handleGenerate = async () => {
     if (files.length === 0 && !textContent.trim()) {
-      setError('Please upload at least one textbook/notebook image or enter text content.');
+      setError('Please upload at least one textbook/notebook image or paste text notes.');
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
       return;
     }
 
@@ -137,8 +159,8 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
     setProgressStage('Analyzing textbook material and diagrams...');
 
     try {
-      setTimeout(() => setProgressStage('Formulating balanced questions & distractors...'), 2500);
-      setTimeout(() => setProgressStage('Compiling answer key & marking scheme at the end...'), 5000);
+      const timer1 = setTimeout(() => setProgressStage('Formulating balanced questions & distractors...'), 2500);
+      const timer2 = setTimeout(() => setProgressStage('Compiling answer key & marking scheme at the end...'), 5000);
 
       const response = await generateQuestionsFromMaterial(
         {
@@ -148,7 +170,10 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
         options
       );
 
-      if (response.success && response.data.questions) {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+
+      if (response && response.success && response.data && response.data.questions && response.data.questions.length > 0) {
         const mappedQuestions = response.data.questions.map((q, idx) => ({
           id: 'ai-' + Date.now() + '-' + idx,
           number: q.number || idx + 1,
@@ -161,19 +186,26 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
           section: q.section
         }));
 
+        // Hand over to parent component and switch to A4 view!
         onQuestionsGenerated(mappedQuestions, {
           subject: response.data.detectedSubject || options.subject,
           totalMarks: response.data.suggestedTotalMarks,
           durationMinutes: response.data.suggestedTimeMinutes
         });
 
+        // Close modal smoothly
         onClose();
       } else {
-        throw new Error('No questions returned from AI analysis.');
+        throw new Error('AI could not parse questions from this image/text. Please ensure the photo has visible text or paste text directly.');
       }
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Failed to generate questions. Please try again.');
+      console.error('Question generation failed:', err);
+      const errMsg = err.message || 'Failed to generate questions. Please check your AI Provider Settings or try uploading clear text.';
+      setError(errMsg);
+      // Auto-scroll modal to top so user clearly sees the error
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
     } finally {
       setIsGenerating(false);
       setProgressStage('');
@@ -209,11 +241,15 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 flex-1 overflow-y-auto space-y-6 text-xs">
+        <div ref={scrollContainerRef} className="p-6 flex-1 overflow-y-auto space-y-6 text-xs">
+          {/* Prominent Error Notification Banner */}
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 text-xs rounded-xl border border-rose-200">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
-              <span>{error}</span>
+            <div className="flex items-start gap-2.5 p-3.5 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 text-xs rounded-2xl border border-rose-200 dark:border-rose-800 shadow-sm animate-fade-in">
+              <AlertCircle className="w-5 h-5 shrink-0 text-rose-500 mt-0.5" />
+              <div className="flex-1">
+                <span className="font-bold block mb-0.5">Could not generate questions:</span>
+                <span>{error}</span>
+              </div>
             </div>
           )}
 
@@ -248,93 +284,89 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
             <div className="space-y-4">
               <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-800/30 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
                 <div className="flex justify-center gap-3 mb-3">
-                  <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
-                    <Upload className="w-6 h-6" />
-                  </div>
-                </div>
-                <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  Drop your textbook scans or notebook pages here
-                </h4>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">
-                  Supports textbook photos, notebook handwritten notes, and PDF chapters (up to 50MB)
-                </p>
-
-                <div className="flex justify-center gap-3 mt-4">
                   <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs transition cursor-pointer shadow-xs"
+                    className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold transition shadow-sm cursor-pointer"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>Choose Files</span>
+                    <span>Choose Photos / Scans</span>
                   </button>
-
                   <button
+                    type="button"
                     onClick={() => cameraInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl font-semibold text-xs transition cursor-pointer"
+                    className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold transition shadow-sm cursor-pointer sm:flex"
                   >
                     <Camera className="w-4 h-4" />
-                    <span>Take Photo of Notebook</span>
+                    <span>Snap Photo</span>
                   </button>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept="image/*,application/pdf,.txt"
-                    onChange={handleFileSelection}
-                    className="hidden"
-                  />
-                  <input
-                    ref={cameraInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handleFileSelection}
-                    className="hidden"
-                  />
                 </div>
+
+                <p className="text-slate-500 dark:text-slate-400">
+                  Upload photos of textbook pages, handwritten lesson notes, past papers, or syllabus outlines.
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Supported formats: JPG, PNG, WEBP, PDF (up to 50MB)
+                </p>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
               </div>
 
-              {/* Uploaded File Previews */}
+              {/* Thumbnails of uploaded material */}
               {files.length > 0 && (
                 <div>
-                  <h5 className="font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Attached Materials ({files.length} pages):
-                  </h5>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                      Uploaded Material ({files.length} pages):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFiles([])}
+                      className="text-rose-500 hover:text-rose-600 font-semibold"
+                    >
+                      Clear All
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {files.map((file, idx) => (
+                    {files.map((f, idx) => (
                       <div
                         key={idx}
-                        className="relative group rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden shadow-xs"
+                        className="relative group border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800"
                       >
-                        {file.previewUrl ? (
-                          <div className="h-24 w-full bg-slate-100 overflow-hidden flex items-center justify-center">
-                            <img
-                              src={file.previewUrl}
-                              alt={file.name}
-                              className="h-full w-full object-cover group-hover:scale-105 transition"
-                            />
-                          </div>
+                        {f.previewUrl ? (
+                          <img
+                            src={f.previewUrl}
+                            alt={f.name}
+                            className="w-full h-24 object-cover"
+                          />
                         ) : (
-                          <div className="h-24 w-full bg-indigo-50 dark:bg-indigo-950/40 flex flex-col items-center justify-center p-2 text-center">
-                            <FileText className="w-8 h-8 text-indigo-500 mb-1" />
-                            <span className="text-[10px] text-indigo-700 dark:text-indigo-300 font-medium truncate max-w-full">
-                              PDF Document
-                            </span>
+                          <div className="w-full h-24 flex flex-col items-center justify-center p-2 text-slate-500">
+                            <FileCheck className="w-6 h-6 text-indigo-500 mb-1" />
+                            <span className="text-[10px] truncate max-w-full">{f.name}</span>
                           </div>
                         )}
-                        <div className="p-2 flex items-center justify-between text-[11px] bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700">
-                          <span className="truncate max-w-[90px] font-medium text-slate-700 dark:text-slate-300">
-                            {file.name}
-                          </span>
-                          <button
-                            onClick={() => removeFile(idx)}
-                            className="text-slate-400 hover:text-rose-500 p-1 transition"
-                            title="Remove page"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(idx)}
+                          className="absolute top-1.5 right-1.5 p-1 bg-black/70 hover:bg-rose-600 text-white rounded-full transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -343,37 +375,37 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
             </div>
           )}
 
-          {/* Tab 2: Text / Syllabus Notes */}
+          {/* Tab 2: Text input */}
           {activeTab === 'text' && (
-            <div>
-              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Paste Chapter Excerpts, Lecture Transcripts, or Syllabus Content
+            <div className="space-y-2">
+              <label className="block font-bold text-slate-700 dark:text-slate-300">
+                Paste Chapter, Passage, or Teacher's Summary Notes:
               </label>
               <textarea
                 value={textContent}
                 onChange={(e) => setTextContent(e.target.value)}
-                placeholder="Paste notebook notes, textbook summary paragraphs, or topics here... E.g. 'Chapter 3: Photosynthesis light reaction occurs in thylakoid membranes where chlorophyll absorbs light energy...'"
-                rows={8}
-                className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 p-4 text-slate-900 dark:text-slate-100 text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                rows={6}
+                placeholder="Paste reading passages, key formulas, lesson notes, or questions here..."
+                className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
           )}
 
-          {/* Exam Configuration Parameters */}
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-            <h4 className="font-bold text-slate-900 dark:text-slate-100 text-xs uppercase tracking-wider flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+          {/* Options & Curricular Controls */}
+          <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-2 text-slate-800 dark:text-slate-200 font-bold">
+              <Sliders className="w-4 h-4 text-indigo-500" />
               <span>AI Exam Generation Settings</span>
-            </h4>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">Subject</label>
                 <input
                   type="text"
                   value={options.subject}
                   onChange={(e) => setOptions({ ...options, subject: e.target.value })}
-                  placeholder="e.g. Physics, Chemistry, Economics"
+                  placeholder="e.g. Science &amp; Technology, Economics"
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white"
                 />
               </div>
@@ -384,28 +416,27 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
                   type="text"
                   value={options.gradeLevel}
                   onChange={(e) => setOptions({ ...options, gradeLevel: e.target.value })}
-                  placeholder="e.g. Grade 10 / High School"
+                  placeholder="e.g. Grade 10 / SS2 / Year 11"
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white"
                 />
               </div>
-
-              <div>
-                <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">Number of Questions</label>
-                <select
-                  value={options.questionCount}
-                  onChange={(e) => setOptions({ ...options, questionCount: parseInt(e.target.value) || 10 })}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white"
-                >
-                  <option value={5}>5 Questions (Quick Quiz)</option>
-                  <option value={10}>10 Questions (Standard Test)</option>
-                  <option value={15}>15 Questions (1 A4 Page Full)</option>
-                  <option value={20}>20 Questions (2 A4 Pages)</option>
-                  <option value={30}>30 Questions (Full Semester Exam)</option>
-                </select>
-              </div>
             </div>
 
-            {/* Question Types Toggle */}
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">Number of Questions</label>
+              <select
+                value={options.questionCount}
+                onChange={(e) => setOptions({ ...options, questionCount: Number(e.target.value) })}
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white"
+              >
+                <option value={5}>5 Questions (Quick Quiz)</option>
+                <option value={10}>10 Questions (Standard Test)</option>
+                <option value={15}>15 Questions (Full Examination)</option>
+                <option value={20}>20 Questions (Extended Paper)</option>
+              </select>
+            </div>
+
+            {/* Allowed Question Types */}
             <div>
               <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1.5">
                 Allowed Question Types
@@ -417,28 +448,29 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
                   { id: 'true_false', label: 'True / False' },
                   { id: 'fill_blank', label: 'Fill in Blanks' },
                   { id: 'essay', label: 'Essay / Long Response' }
-                ].map((type) => {
-                  const active = options.questionTypes.includes(type.id as QuestionType);
+                ].map((item) => {
+                  const isChecked = options.questionTypes.includes(item.id as QuestionType);
                   return (
                     <button
-                      key={type.id}
+                      key={item.id}
                       type="button"
-                      onClick={() => toggleQuestionType(type.id as QuestionType)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
-                        active
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+                      onClick={() => toggleQuestionType(item.id as QuestionType)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer ${
+                        isChecked
+                          ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                       }`}
                     >
-                      {active && <CheckCircle2 className="w-3.5 h-3.5" />}
-                      <span>{type.label}</span>
+                      {isChecked && <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                      <span>{item.label}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Difficulty and Bloom's taxonomy */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">Difficulty</label>
                 <select
@@ -484,10 +516,11 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 flex items-center justify-between gap-3">
-          <div className="text-xs text-slate-500">
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-xs text-slate-500 w-full sm:w-auto text-center sm:text-left">
             {isGenerating ? (
-              <span className="font-medium text-indigo-600 dark:text-indigo-400 animate-pulse">
+              <span className="font-bold text-indigo-600 dark:text-indigo-400 animate-pulse flex items-center gap-2 justify-center sm:justify-start">
+                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
                 {progressStage || 'Generating examination paper...'}
               </span>
             ) : (
@@ -495,7 +528,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               onClick={onClose}
               disabled={isGenerating}
@@ -507,7 +540,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
             <button
               onClick={handleGenerate}
               disabled={isGenerating || (files.length === 0 && !textContent.trim())}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-lg shadow-indigo-500/25 disabled:opacity-50 transition active:scale-95 cursor-pointer"
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white text-xs font-bold shadow-lg shadow-indigo-500/25 disabled:opacity-50 transition active:scale-95 cursor-pointer"
             >
               {isGenerating ? (
                 <>
