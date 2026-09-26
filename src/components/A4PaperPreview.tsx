@@ -11,7 +11,8 @@ import {
   HelpCircle,
   Hash,
   FileDown,
-  Loader2
+  Loader2,
+  Layers
 } from 'lucide-react';
 import { ExamMetadata, ExamPrintConfig, ExamQuestion } from '../types/exam';
 import { exportExamToPDF, exportExamToWord } from '../services/exportService';
@@ -45,7 +46,6 @@ export const A4PaperPreview: React.FC<A4PaperPreviewProps> = ({
       await exportExamToPDF(printRef.current, filename);
     } catch (err) {
       console.error('Failed to export PDF:', err);
-      // Fallback to browser print
       window.print();
     } finally {
       setIsExportingPDF(false);
@@ -64,16 +64,17 @@ export const A4PaperPreview: React.FC<A4PaperPreviewProps> = ({
   };
 
   const totalCalculatedMarks = questions.reduce((sum, q) => sum + (q.marks || 1), 0);
+  const questionsPerPage = config.questionsPerPage || 0;
 
-  // Group questions by section if any
-  const groupedSections: { [key: string]: ExamQuestion[] } = {};
-  questions.forEach((q) => {
-    const sec = q.section || (q.type === 'multiple_choice' || q.type === 'true_false' ? 'SECTION A: OBJECTIVE QUESTIONS' : 'SECTION B: THEORY & PROBLEM SOLVING');
-    if (!groupedSections[sec]) groupedSections[sec] = [];
-    groupedSections[sec].push(q);
-  });
-
-  const sectionKeys = Object.keys(groupedSections);
+  // Split questions into pages if questionsPerPage is set (> 0)
+  const questionPages: ExamQuestion[][] = [];
+  if (questionsPerPage > 0) {
+    for (let i = 0; i < questions.length; i += questionsPerPage) {
+      questionPages.push(questions.slice(i, i + questionsPerPage));
+    }
+  } else {
+    questionPages.push(questions);
+  }
 
   return (
     <div className="space-y-6">
@@ -105,6 +106,29 @@ export const A4PaperPreview: React.FC<A4PaperPreviewProps> = ({
               <Columns2 className="w-3.5 h-3.5" />
               <span>2 Columns (Eco-Fit)</span>
             </button>
+          </div>
+
+          {/* Questions Per Page Selector */}
+          <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-indigo-50/70 dark:bg-indigo-950/40 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900/50">
+            <Layers className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span className="font-bold text-[11px] text-indigo-950 dark:text-indigo-200 uppercase">
+              Questions / Page:
+            </span>
+            <select
+              value={config.questionsPerPage ?? 0}
+              onChange={(e) => onUpdateConfig({ ...config, questionsPerPage: Number(e.target.value) })}
+              className="bg-white dark:bg-slate-800 text-indigo-950 dark:text-indigo-100 rounded-lg px-2.5 py-1 border border-indigo-200 dark:border-indigo-800 font-semibold focus:outline-none cursor-pointer"
+            >
+              <option value={0}>Auto Natural Flow</option>
+              <option value={1}>1 Question / Page</option>
+              <option value={2}>2 Questions / Page</option>
+              <option value={3}>3 Questions / Page</option>
+              <option value={4}>4 Questions / Page</option>
+              <option value={5}>5 Questions / Page</option>
+              <option value={6}>6 Questions / Page</option>
+              <option value={8}>8 Questions / Page</option>
+              <option value={10}>10 Questions / Page</option>
+            </select>
           </div>
 
           {/* Font Scale */}
@@ -250,39 +274,47 @@ export const A4PaperPreview: React.FC<A4PaperPreviewProps> = ({
                       {metadata.institutionName || 'INSTITUTION EXAMINATION BOARD'}
                     </h1>
                     {metadata.department && (
-                      <div className="text-xs font-semibold uppercase tracking-wide font-sans text-slate-700">
+                      <p className="text-xs uppercase font-sans tracking-wide text-slate-700">
                         {metadata.department}
-                      </div>
+                      </p>
                     )}
-                    <h2 className="text-base font-bold uppercase tracking-wide font-sans text-slate-900">
-                      {metadata.examTitle || 'SEMESTER EXAMINATION'}
+                    <h2 className="text-base font-bold uppercase tracking-wider font-sans mt-1 text-indigo-950">
+                      {metadata.examTitle || 'SEMESTER EXAMINATION PAPER'}
                     </h2>
-                    {metadata.academicYear && (
-                      <div className="text-xs font-medium font-sans text-slate-600">
-                        {metadata.academicYear}
-                      </div>
-                    )}
                   </div>
                 </div>
 
-                <div className="flex flex-wrap justify-between items-center text-xs font-sans font-semibold border-t border-slate-300 pt-1.5 px-2 text-slate-800">
-                  <span>SUBJECT: <strong className="uppercase">{metadata.subject || '—'}</strong></span>
-                  <span>CLASS: <strong className="uppercase">{metadata.gradeLevel || '—'}</strong></span>
-                  <span>TIME ALLOWED: <strong>{metadata.durationMinutes || 60} MINUTES</strong></span>
-                  <span>TOTAL MARKS: <strong>{totalCalculatedMarks} MARKS</strong></span>
+                {/* Subject, Grade, Duration, Marks bar */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-sans border-t border-slate-300 pt-2 mt-2 font-semibold text-slate-800">
+                  <div>
+                    <span className="text-slate-500 uppercase text-[10px] block">SUBJECT:</span>
+                    <span className="font-bold text-slate-900">{metadata.subject || 'GENERAL STUDIES'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 uppercase text-[10px] block">CLASS / GRADE:</span>
+                    <span className="font-bold text-slate-900">{metadata.gradeLevel || 'SENIOR LEVEL'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 uppercase text-[10px] block">TIME ALLOWED:</span>
+                    <span className="font-bold text-slate-900">{metadata.durationMinutes || 60} MINUTES</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 uppercase text-[10px] block">TOTAL MARKS:</span>
+                    <span className="font-bold text-slate-900">{totalCalculatedMarks} MARKS</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Student Identification Box (Name, Roll, Signature) */}
+              {/* Candidate Info Box */}
               {metadata.enableStudentInfoBox && (
-                <div className="mb-4 border border-slate-400 rounded-sm p-2 font-sans text-xs bg-slate-50/50">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+                <div className="border border-slate-800 p-2.5 mb-4 rounded-sm font-sans text-xs bg-slate-50/50">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                     <div className="flex items-end">
-                      <span className="font-bold text-slate-700 shrink-0 mr-2">STUDENT NAME:</span>
+                      <span className="font-bold text-slate-700 shrink-0 mr-2">CANDIDATE NAME:</span>
                       <div className="flex-1 border-b border-dotted border-slate-600 min-h-[16px]" />
                     </div>
                     <div className="flex items-end">
-                      <span className="font-bold text-slate-700 shrink-0 mr-2">ROLL NO / ID:</span>
+                      <span className="font-bold text-slate-700 shrink-0 mr-2">INDEX / ROLL NO:</span>
                       <div className="flex-1 border-b border-dotted border-slate-600 min-h-[16px]" />
                     </div>
                     <div className="flex items-end">
@@ -311,63 +343,82 @@ export const A4PaperPreview: React.FC<A4PaperPreviewProps> = ({
                 </div>
               )}
 
-              {/* Questions Area (1-column or 2-column) */}
+              {/* Questions Area (Supports pagination by page chunks or natural flow) */}
               {questions.length === 0 ? (
                 <div className="py-12 text-center border-2 border-dashed border-slate-300 rounded font-sans text-xs text-slate-500">
                   <p className="font-semibold text-slate-700">No questions added yet.</p>
                   <p className="text-[11px] mt-1">Use Voice Dictation or Textbook Upload in the Editor to add questions.</p>
                 </div>
               ) : (
-                <div
-                  className={`questions-flow ${
-                    config.layoutColumns === 2 ? 'columns-2 gap-6' : 'space-y-4'
-                  }`}
-                >
-                  {questions.map((q) => (
-                    <div
-                      key={q.id}
-                      className="question-item avoid-break mb-3.5 pb-2 break-inside-avoid"
-                    >
-                      {/* Question prompt */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="font-semibold text-slate-950 flex-1">
-                          <span className="font-bold mr-1.5">{q.number}.</span>
-                          <span>{q.question}</span>
-                        </div>
-                        {config.showMarksPerQuestion && (
-                          <span className="font-sans font-bold text-[9pt] text-slate-600 shrink-0 ml-2">
-                            [{q.marks} {q.marks === 1 ? 'Mark' : 'Marks'}]
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Options for MCQ / True-False */}
-                      {(q.type === 'multiple_choice' || q.type === 'true_false') && q.options && (
-                        <div className="mt-1.5 pl-5 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-slate-800 font-sans text-[10.5pt]">
-                          {q.options.map((opt, optIndex) => (
-                            <div key={optIndex} className="flex items-start gap-1.5">
-                              <span className="font-semibold">{opt.substring(0, 2)}</span>
-                              <span>{opt.substring(2).trim()}</span>
-                            </div>
-                          ))}
+                <div className="questions-paginated-container">
+                  {questionPages.map((pageQuestions, pageIdx) => (
+                    <React.Fragment key={pageIdx}>
+                      {/* Optional visual page separator in preview when pagination is active */}
+                      {questionsPerPage > 0 && pageIdx > 0 && (
+                        <div className="no-print my-6 flex items-center justify-between border-y-2 border-dashed border-indigo-200 dark:border-indigo-900/60 py-2 px-3 bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300 font-sans text-xs font-bold rounded-lg">
+                          <span>📄 Page {pageIdx + 1} Starts Here ({pageQuestions.length} Questions)</span>
+                          <span className="text-[10px] font-normal text-slate-500">Prints on separate A4 sheet</span>
                         </div>
                       )}
 
-                      {/* Dotted lines for student answer writing if short answer / essay */}
-                      {config.showAnswerLinesForTheory &&
-                        (q.type === 'short_answer' || q.type === 'essay' || q.type === 'fill_blank') && (
-                          <div className="mt-2 pl-4 space-y-2">
-                            {Array.from({ length: q.type === 'essay' ? 4 : config.answerLinesCount || 2 }).map(
-                              (_, lineIdx) => (
-                                <div
-                                  key={lineIdx}
-                                  className="border-b border-dotted border-slate-300 h-4 w-full"
-                                />
-                              )
+                      <div
+                        className={`questions-flow ${
+                          config.layoutColumns === 2 ? 'columns-2 gap-6' : 'space-y-4'
+                        }`}
+                      >
+                        {pageQuestions.map((q) => (
+                          <div
+                            key={q.id}
+                            className="question-item avoid-break mb-3.5 pb-2 break-inside-avoid"
+                          >
+                            {/* Question prompt */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="font-semibold text-slate-950 flex-1">
+                                <span className="font-bold mr-1.5">{q.number}.</span>
+                                <span>{q.question}</span>
+                              </div>
+                              {config.showMarksPerQuestion && (
+                                <span className="font-sans font-bold text-[9pt] text-slate-600 shrink-0 ml-2">
+                                  [{q.marks} {q.marks === 1 ? 'Mark' : 'Marks'}]
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Options for MCQ / True-False */}
+                            {(q.type === 'multiple_choice' || q.type === 'true_false') && q.options && (
+                              <div className="mt-1.5 pl-5 grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-slate-800 font-sans text-[10.5pt]">
+                                {q.options.map((opt, optIndex) => (
+                                  <div key={optIndex} className="flex items-start gap-1.5">
+                                    <span className="font-semibold">{opt.substring(0, 2)}</span>
+                                    <span>{opt.substring(2).trim()}</span>
+                                  </div>
+                                ))}
+                              </div>
                             )}
+
+                            {/* Dotted lines for student answer writing if short answer / essay */}
+                            {config.showAnswerLinesForTheory &&
+                              (q.type === 'short_answer' || q.type === 'essay' || q.type === 'fill_blank') && (
+                                <div className="mt-2 pl-4 space-y-2">
+                                  {Array.from({ length: q.type === 'essay' ? 4 : config.answerLinesCount || 2 }).map(
+                                    (_, lineIdx) => (
+                                      <div
+                                        key={lineIdx}
+                                        className="border-b border-dotted border-slate-300 h-4 w-full"
+                                      />
+                                    )
+                                  )}
+                                </div>
+                              )}
                           </div>
-                        )}
-                    </div>
+                        ))}
+                      </div>
+
+                      {/* Hard page break for print when questionsPerPage is enabled and not last page */}
+                      {questionsPerPage > 0 && pageIdx < questionPages.length - 1 && (
+                        <div className="explicit-page-break" />
+                      )}
+                    </React.Fragment>
                   ))}
                 </div>
               )}
@@ -378,7 +429,7 @@ export const A4PaperPreview: React.FC<A4PaperPreviewProps> = ({
           {config.printMode !== 'student_only' && questions.length > 0 && (
             <div
               className={`answer-key-section mt-8 pt-4 border-t-2 border-dashed border-slate-800 avoid-break ${
-                config.answerKeyOnNewPage ? 'page-break' : ''
+                config.answerKeyOnNewPage || questionsPerPage > 0 ? 'page-break' : ''
               }`}
             >
               <div className="text-center mb-4">
@@ -448,11 +499,6 @@ export const A4PaperPreview: React.FC<A4PaperPreviewProps> = ({
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {/* End of Examination Marker */}
-              <div className="mt-6 pt-3 text-center border-t border-slate-400 font-sans text-[9pt] font-bold text-slate-600 uppercase tracking-widest">
-                *** END OF EXAMINATION PAPER ***
               </div>
             </div>
           )}

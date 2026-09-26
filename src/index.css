@@ -50,5 +50,13 @@
       page-break-inside: avoid !important;
       break-inside: avoid !important;
     }
+
+    .explicit-page-break {
+      page-break-after: always !important;
+      break-after: page !important;
+      height: 0;
+      margin: 0;
+      padding: 0;
+    }
   }
 }

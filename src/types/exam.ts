@@ -43,6 +43,7 @@ export interface ExamPrintConfig {
   answerLinesCount: number; // 2, 3, 4 lines
   showMarksPerQuestion: boolean;
   watermarkText?: string;
+  questionsPerPage?: number; // 0 = auto-flow (default), or 2, 3, 4, 5, 6, 8, 10
 }
 
 export interface TextbookUploadPayload {

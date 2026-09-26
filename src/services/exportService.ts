@@ -258,7 +258,7 @@ export async function exportExamToWord(
 
   // QUESTIONS SECTION
   if (config.printMode !== 'answers_only') {
-    questions.forEach((q) => {
+    questions.forEach((q, idx) => {
       // Question prompt
       docChildren.push(
         new Paragraph({
@@ -304,6 +304,11 @@ export async function exportExamToWord(
             })
           );
         }
+      }
+
+      // If questionsPerPage is specified and we reached the page threshold (and not the last question)
+      if (config.questionsPerPage && config.questionsPerPage > 0 && (idx + 1) % config.questionsPerPage === 0 && idx < questions.length - 1) {
+        docChildren.push(new Paragraph({ children: [new PageBreak()] }));
       }
     });
   }

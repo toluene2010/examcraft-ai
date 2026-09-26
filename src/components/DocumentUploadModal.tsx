@@ -470,17 +470,43 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">Number of Questions</label>
-              <select
-                value={options.questionCount}
-                onChange={(e) => setOptions({ ...options, questionCount: Number(e.target.value) })}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white"
-              >
-                <option value={5}>5 Questions (Quick Quiz)</option>
-                <option value={10}>10 Questions (Standard Test)</option>
-                <option value={15}>15 Questions (Full Examination)</option>
-                <option value={20}>20 Questions (Extended Paper)</option>
-              </select>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-medium text-slate-600 dark:text-slate-400">
+                  Total Questions Needed
+                </label>
+                <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">
+                  {options.questionCount} Questions Selected
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={options.questionCount}
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.min(50, Number(e.target.value) || 1));
+                    setOptions({ ...options, questionCount: val });
+                  }}
+                  className="w-28 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white font-bold text-center"
+                />
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+                  {[5, 10, 15, 20, 25, 30, 40].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setOptions({ ...options, questionCount: count })}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        options.questionCount === count
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Allowed Question Types */}
