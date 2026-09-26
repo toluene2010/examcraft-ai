@@ -63,7 +63,7 @@ Because ExamCraft has both a React frontend and an Express backend (for secure G
 4. Select your GitHub repository.
 5. Set:
    - **Environment**: `Node`
-   - **Build Command**: `npm install && npm run build`
+   - **Build Command**: `npm install --legacy-peer-deps && npm run build`
    - **Start Command**: `npm start`
 6. Under **Environment Variables**, add:
    - `GEMINI_API_KEY`: *(Your key from Google AI Studio)*
