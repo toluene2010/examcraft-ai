@@ -21,18 +21,29 @@ export interface GenerateQuestionsResponse {
 }
 
 function getProviderHeaders(): Record<string, string> {
-  const provider = localStorage.getItem('examcraft_ai_provider') || 'gemini';
+  let provider = localStorage.getItem('examcraft_ai_provider');
+  const groqKey = localStorage.getItem('examcraft_groq_key');
+  const openRouterKey = localStorage.getItem('examcraft_openrouter_key');
+
+  // If user has saved a Groq key, automatically prioritize Groq
+  if (groqKey && !provider) {
+    provider = 'groq';
+  } else if (!provider) {
+    provider = groqKey ? 'groq' : 'gemini';
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-ai-provider': provider
   };
 
-  if (provider === 'groq') {
-    const customKey = localStorage.getItem('examcraft_groq_key');
-    if (customKey) headers['x-custom-api-key'] = customKey;
-  } else if (provider === 'openrouter') {
-    const customKey = localStorage.getItem('examcraft_openrouter_key');
-    if (customKey) headers['x-custom-api-key'] = customKey;
+  if (provider === 'groq' && groqKey) {
+    headers['x-custom-api-key'] = groqKey;
+  } else if (provider === 'openrouter' && openRouterKey) {
+    headers['x-custom-api-key'] = openRouterKey;
+  } else if (groqKey) {
+    // If a Groq key exists, send it anyway as fallback
+    headers['x-custom-api-key'] = groqKey;
   }
 
   return headers;

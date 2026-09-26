@@ -17,14 +17,17 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Helper: Call Groq API
-async function callGroqChat(apiKey: string, messages: any[], responseJson = true) {
+// Helper: Call Groq API (Supports both text LLaMA 3.3 and Vision models)
+async function callGroqChat(apiKey: string, messages: any[], hasImages = false, responseJson = true) {
+  // Use Groq's multimodal vision model when images are present, otherwise LLaMA 3.3
+  const model = hasImages ? 'llama-3.2-11b-vision-preview' : 'llama-3.3-70b-versatile';
+  
   const body: any = {
-    model: 'llama-3.3-70b-versatile',
+    model,
     messages,
     temperature: 0.2
   };
-  if (responseJson) {
+  if (responseJson && !hasImages) {
     body.response_format = { type: 'json_object' };
   }
 
@@ -75,6 +78,22 @@ async function callOpenRouterChat(apiKey: string, messages: any[], responseJson 
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content || '';
+}
+
+// Helper to clean and extract JSON from model responses (markdown blocks etc.)
+function extractJsonFromText(rawText: string): any {
+  let cleaned = rawText.trim();
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json/, '').replace(/```$/, '').trim();
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```/, '').replace(/```$/, '').trim();
+  }
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
+  return JSON.parse(cleaned);
 }
 
 // Health check endpoint
@@ -137,7 +156,7 @@ REQUIREMENTS:
 4. Provide an explanation / marking scheme point for the teacher's answer key at the end of the exam paper.
 5. Assign marks to each question (e.g. 1 mark for MCQ, 2-5 for short answer).
 
-Return ONLY valid JSON matching this schema:
+Return ONLY a valid JSON object matching this schema:
 {
   "detectedSubject": "${subject}",
   "suggestedTotalMarks": ${questionCount * 2},
@@ -158,22 +177,41 @@ Return ONLY valid JSON matching this schema:
 }
 `;
 
-    // 1. If Groq selected and text available (or text extracted)
+    // 1. If Groq selected OR if Groq key provided
     const effectiveGroqKey = clientKey || process.env.GROQ_API_KEY;
-    if (customProvider === 'groq' && effectiveGroqKey && (!images || images.length === 0)) {
+    if ((customProvider === 'groq' || (!process.env.GEMINI_API_KEY && effectiveGroqKey)) && effectiveGroqKey) {
+      const hasImages = images && images.length > 0;
+      
+      const contentParts: any[] = [];
+      if (textContent.trim()) {
+        contentParts.push({ type: 'text', text: `TEXTBOOK MATERIAL CONTENT:\n${textContent}\n\n${promptText}` });
+      } else {
+        contentParts.push({ type: 'text', text: promptText });
+      }
+
+      if (hasImages) {
+        for (const img of images) {
+          const imgUrl = img.data.startsWith('data:') ? img.data : `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`;
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: imgUrl }
+          });
+        }
+      }
+
       const messages = [
         {
           role: 'system',
-          content: 'You are an educational test designer that produces JSON exam question papers.'
+          content: 'You are an educational test designer that produces JSON exam question papers. Always return strictly valid JSON only.'
         },
         {
           role: 'user',
-          content: `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent}`
+          content: hasImages ? contentParts : `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent}`
         }
       ];
 
-      const groqText = await callGroqChat(effectiveGroqKey, messages, true);
-      const parsed = JSON.parse(groqText);
+      const groqText = await callGroqChat(effectiveGroqKey, messages, hasImages, true);
+      const parsed = extractJsonFromText(groqText);
       return res.json({ success: true, data: parsed });
     }
 
@@ -183,7 +221,7 @@ Return ONLY valid JSON matching this schema:
       const messages = [
         {
           role: 'system',
-          content: 'You are an educational test designer that produces JSON exam question papers.'
+          content: 'You are an educational test designer that produces JSON exam question papers. Always return strictly valid JSON only.'
         },
         {
           role: 'user',
@@ -192,15 +230,15 @@ Return ONLY valid JSON matching this schema:
       ];
 
       const orText = await callOpenRouterChat(effectiveOpenRouterKey, messages, true);
-      const parsed = JSON.parse(orText);
+      const parsed = extractJsonFromText(orText);
       return res.json({ success: true, data: parsed });
     }
 
-    // 3. Default: Gemini (Supports Multimodal images + text)
+    // 3. Fallback: Gemini (Requires GEMINI_API_KEY)
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({
-        error: 'GEMINI_API_KEY is not configured on the server. Please add your free key in AI Settings.'
+      return res.status(400).json({
+        error: 'Please click the "AI Provider" button in the top header, select Groq, and paste your free Groq key.'
       });
     }
 
@@ -334,15 +372,15 @@ Return JSON in this format:
 }
 `;
 
-    // 1. Try Groq if selected
+    // 1. Try Groq if selected or if Groq key exists
     const effectiveGroqKey = clientKey || process.env.GROQ_API_KEY;
-    if (customProvider === 'groq' && effectiveGroqKey) {
+    if ((customProvider === 'groq' || (!process.env.GEMINI_API_KEY && effectiveGroqKey)) && effectiveGroqKey) {
       const messages = [
-        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON.' },
+        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON. Always return valid JSON only.' },
         { role: 'user', content: prompt }
       ];
-      const groqResp = await callGroqChat(effectiveGroqKey, messages, true);
-      const parsed = JSON.parse(groqResp);
+      const groqResp = await callGroqChat(effectiveGroqKey, messages, false, true);
+      const parsed = extractJsonFromText(groqResp);
       return res.json({ success: true, question: parsed });
     }
 
@@ -350,18 +388,18 @@ Return JSON in this format:
     const effectiveOpenRouterKey = clientKey || process.env.OPENROUTER_API_KEY;
     if (customProvider === 'openrouter' && effectiveOpenRouterKey) {
       const messages = [
-        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON.' },
+        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON. Always return valid JSON only.' },
         { role: 'user', content: prompt }
       ];
       const orResp = await callOpenRouterChat(effectiveOpenRouterKey, messages, true);
-      const parsed = JSON.parse(orResp);
+      const parsed = extractJsonFromText(orResp);
       return res.json({ success: true, question: parsed });
     }
 
     // 3. Default: Gemini
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY not configured. Switch to Groq in Settings.' });
+      return res.status(400).json({ error: 'Please select Groq in AI Settings and paste your free Groq key.' });
     }
 
     const ai = new GoogleGenAI({ apiKey });
