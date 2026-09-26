@@ -118,7 +118,7 @@ Format your response strictly as valid JSON adhering to the provided schema.
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: contents,
       config: {
         temperature: 0.3,
@@ -221,7 +221,7 @@ Detect:
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         temperature: 0.2,
@@ -270,7 +270,7 @@ app.post('/api/transcribe-audio', async (req, res) => {
     const cleanBase64 = audioData.replace(/^data:[^;]+;base64,/, '');
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           inlineData: {

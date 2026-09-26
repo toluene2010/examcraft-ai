@@ -231,16 +231,17 @@ export const SpeechDictationModal: React.FC<SpeechDictationModalProps> = ({
 
             <div className="relative min-h-[160px] max-h-[220px] overflow-y-auto p-4 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/60 focus-within:border-indigo-500 transition">
               <textarea
-                value={transcript}
+                value={interimText ? (transcript ? `${transcript} ${interimText}` : interimText) : transcript}
                 onChange={(e) => setTranscript(e.target.value)}
-                placeholder="Click the microphone or start speaking... E.g. 'Question: Which organelle is known as the powerhouse of the cell? Option A: Nucleus, Option B: Mitochondria, Option C: Ribosome, Option D: Golgi Body. The correct answer is B, 2 marks.'"
+                placeholder="Click the microphone button below or start speaking clearly into your mic... E.g. 'Question: Which organelle is known as the powerhouse of the cell? Option A: Nucleus, Option B: Mitochondria, Option C: Ribosome, Option D: Golgi Body. The correct answer is B, 2 marks.'"
                 className="w-full h-full bg-transparent resize-none border-none focus:outline-none text-slate-900 dark:text-slate-100 text-sm leading-relaxed"
                 rows={5}
               />
               {interimText && (
-                <span className="text-indigo-600 dark:text-indigo-400 font-medium animate-pulse text-sm">
-                  {' '}{interimText}...
-                </span>
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
+                  <span>Hearing speech in real time...</span>
+                </div>
               )}
             </div>
           </div>

@@ -128,13 +128,15 @@ export function useSpeechToText(options: UseSpeechToTextOptions = {}) {
     };
   }, [lang, continuous]);
 
-  // Audio level monitoring via Web Audio API
+  // Audio level monitoring via Web Audio API (optional, will not block recognition)
   const startAudioLevelMonitoring = async () => {
     try {
+      if (!navigator.mediaDevices?.getUserMedia) return;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       microphoneStreamRef.current = stream;
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
       const audioCtx = new AudioCtx();
       audioContextRef.current = audioCtx;
 
@@ -155,7 +157,6 @@ export function useSpeechToText(options: UseSpeechToTextOptions = {}) {
           sum += dataArray[i];
         }
         const average = sum / dataArray.length;
-        // Normalize to 0 - 100
         setAudioLevel(Math.min(100, Math.round((average / 128) * 100)));
 
         animationFrameRef.current = requestAnimationFrame(checkVolume);
@@ -163,7 +164,7 @@ export function useSpeechToText(options: UseSpeechToTextOptions = {}) {
 
       checkVolume();
     } catch (err) {
-      console.warn('Could not start audio visualizer:', err);
+      console.warn('Audio level monitoring not active or denied:', err);
     }
   };
 
@@ -187,17 +188,21 @@ export function useSpeechToText(options: UseSpeechToTextOptions = {}) {
     setError(null);
     shouldKeepListeningRef.current = true;
 
-    try {
-      await startAudioLevelMonitoring();
-      if (recognitionRef.current) {
+    // Start speech recognition directly without waiting on or failing from audio context
+    if (recognitionRef.current) {
+      try {
         recognitionRef.current.start();
+        setIsListening(true);
+      } catch (err: any) {
+        // Recognition might already be running
+        if (err.name !== 'InvalidStateError') {
+          console.warn('Recognition start error:', err);
+        }
       }
-    } catch (err: any) {
-      console.error('Failed to start speech recognition:', err);
-      setError(err?.message || 'Failed to start microphone.');
-      setIsListening(false);
-      shouldKeepListeningRef.current = false;
     }
+
+    // Try starting volume level visualizer in background
+    startAudioLevelMonitoring().catch(() => {});
   }, []);
 
   const stopListening = useCallback(() => {
