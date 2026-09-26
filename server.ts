@@ -17,36 +17,73 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Helper: Call Groq API (Supports both text LLaMA 3.3 and Vision models)
+// Helper: Call Groq API (Supports both LLaMA 3.3 text and vision models with auto-fallback)
 async function callGroqChat(apiKey: string, messages: any[], hasImages = false, responseJson = true) {
-  // Use Groq's multimodal vision model when images are present, otherwise LLaMA 3.3
-  const model = hasImages ? 'llama-3.2-11b-vision-preview' : 'llama-3.3-70b-versatile';
-  
-  const body: any = {
-    model,
-    messages,
-    temperature: 0.2
-  };
-  if (responseJson && !hasImages) {
-    body.response_format = { type: 'json_object' };
+  // If images are provided, try Groq's active vision models in order of availability
+  const modelsToTry = hasImages
+    ? ['llama-3.2-90b-vision-preview', 'llama-3.2-11b-vision', 'llama-3.3-70b-versatile']
+    : ['llama-3.3-70b-versatile'];
+
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const isVision = model.includes('vision');
+      // If we fall back to a non-vision model, ensure messages only have text
+      let safeMessages = messages;
+      if (!isVision && hasImages) {
+        safeMessages = messages.map((m: any) => {
+          if (Array.isArray(m.content)) {
+            const textParts = m.content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text)
+              .join('\n');
+            return { ...m, content: textParts || 'Analyze the provided curriculum material.' };
+          }
+          return m;
+        });
+      }
+
+      const body: any = {
+        model,
+        messages: safeMessages,
+        temperature: 0.2
+      };
+      if (responseJson && !isVision) {
+        body.response_format = { type: 'json_object' };
+      }
+
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        // If model decommissioned or not found, try next candidate
+        if (res.status === 400 && (errorText.includes('decommissioned') || errorText.includes('model_not_found') || errorText.includes('not supported'))) {
+          lastError = new Error(errorText);
+          continue;
+        }
+        throw new Error(`Groq API error (${res.status}): ${errorText}`);
+      }
+
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    } catch (err: any) {
+      lastError = err;
+      if (err.message && err.message.includes('decommissioned')) {
+        continue;
+      }
+      throw err;
+    }
   }
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Groq API error (${res.status}): ${errorText}`);
-  }
-
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
+  throw lastError || new Error('Failed to generate from Groq models');
 }
 
 // Helper: Call OpenRouter API
@@ -238,7 +275,7 @@ Return ONLY a valid JSON object matching this schema:
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(400).json({
-        error: 'Please click the "AI Provider" button in the top header, select Groq, and paste your free Groq key.'
+        error: 'Please click the "AI Key" button at the top and confirm your free Groq key.'
       });
     }
 
