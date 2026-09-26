@@ -26,6 +26,7 @@ import { A4PaperPreview } from './components/A4PaperPreview';
 import { SpeechDictationModal } from './components/SpeechDictationModal';
 import { DocumentUploadModal } from './components/DocumentUploadModal';
 import { ShareModal } from './components/ShareModal';
+import { AIProviderSettingsModal } from './components/AIProviderSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { ExamMetadata, ExamPrintConfig, ExamQuestion } from './types/exam';
 
@@ -79,6 +80,7 @@ export default function App() {
   const [isSpeechModalOpen, setIsSpeechModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
   // Auto-save to localStorage for PWA offline persistence
@@ -223,6 +225,7 @@ export default function App() {
         onOpenSpeechModal={() => setIsSpeechModalOpen(true)}
         onOpenUploadModal={() => setIsUploadModalOpen(true)}
         onOpenShareModal={() => setIsShareModalOpen(true)}
+        onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
         onAddManualQuestion={handleAddManualQuestion}
         onResetExam={handleReset}
         totalQuestions={questions.length}
@@ -435,6 +438,12 @@ export default function App() {
           setActiveTab('preview');
           setTimeout(() => window.print(), 200);
         }}
+      />
+
+      <AIProviderSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onSaved={() => showToast('AI Provider settings updated!')}
       />
     </div>
   );

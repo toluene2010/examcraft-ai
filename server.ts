@@ -17,11 +17,72 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Helper: Call Groq API
+async function callGroqChat(apiKey: string, messages: any[], responseJson = true) {
+  const body: any = {
+    model: 'llama-3.3-70b-versatile',
+    messages,
+    temperature: 0.2
+  };
+  if (responseJson) {
+    body.response_format = { type: 'json_object' };
+  }
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Groq API error (${res.status}): ${errorText}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+// Helper: Call OpenRouter API
+async function callOpenRouterChat(apiKey: string, messages: any[], responseJson = true) {
+  const body: any = {
+    model: 'meta-llama/llama-3.3-70b-instruct:free',
+    messages,
+    temperature: 0.2
+  };
+  if (responseJson) {
+    body.response_format = { type: 'json_object' };
+  }
+
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://examcraft.ai',
+      'X-Title': 'ExamCraft AI'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`OpenRouter API error (${res.status}): ${errorText}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     hasApiKey: !!process.env.GEMINI_API_KEY,
+    hasGroqKey: !!process.env.GROQ_API_KEY,
     timestamp: new Date().toISOString()
   });
 });
@@ -29,12 +90,8 @@ app.get('/api/health', (req, res) => {
 // Endpoint: Generate questions from uploaded textbook/notebook/notes
 app.post('/api/generate-questions', async (req, res) => {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({
-        error: 'GEMINI_API_KEY is not configured on the server. Please check environment variables.'
-      });
-    }
+    const customProvider = req.headers['x-ai-provider'] as string;
+    const clientKey = req.headers['x-custom-api-key'] as string;
 
     const {
       textContent = '',
@@ -59,12 +116,9 @@ app.post('/api/generate-questions', async (req, res) => {
       additionalInstructions = ''
     } = options;
 
-    const ai = new GoogleGenAI({ apiKey });
-
-    // Build prompt
-    const prompt = `
+    const promptText = `
 You are an expert exam setter and pedagogy curriculum specialist.
-Your task is to generate high-quality examination questions based STRICTLY and COMPREHENSIVELY on the provided textbook/notebook materials.
+Generate high-quality examination questions based STRICTLY and COMPREHENSIVELY on the provided textbook/notebook materials.
 
 EXAM DETAILS:
 - Title: ${examTitle}
@@ -73,47 +127,104 @@ EXAM DETAILS:
 - Desired Question Count: ${questionCount}
 - Allowed Question Types: ${questionTypes.join(', ')}
 - Difficulty Level: ${difficulty}
-- Cognitive Level (Bloom's Taxonomy): ${bloomsTaxonomy}
-${additionalInstructions ? `- Special Teacher Instructions: ${additionalInstructions}` : ''}
+- Target Bloom's Taxonomy: ${bloomsTaxonomy}
+${additionalInstructions ? `- Additional Special Instructions: ${additionalInstructions}` : ''}
 
-CRITICAL RULES:
-1. Questions must test genuine understanding of concepts found in the uploaded textbook/notebook images or text.
-2. For "multiple_choice", provide exactly 4 options labeled starting with "A) ", "B) ", "C) ", "D) ". Ensure only ONE option is objectively correct and plausible distractors are provided.
-3. For "true_false", provide two options: "A) True" and "B) False".
-4. For "fill_blank", clearly mark the blank as "_______" in the question text.
-5. For "short_answer" or "essay", include the model answer or key grading criteria in the 'answer' field.
-6. Provide an accurate and clear 'answer' for every single question.
-7. Provide a concise 'explanation' or textbook reference for why the answer is correct.
-8. Assign realistic 'marks' (e.g. 1 mark for MCQ/True-False, 2-3 marks for Short Answer, 5-10 for Essay).
-9. All answers will be aggregated into an Answer Key placed at the end of the printed exam.
+REQUIREMENTS:
+1. Divide questions logically: SECTION A for Multiple Choice (objective), SECTION B for Short Answer / Theory.
+2. For multiple_choice questions, provide EXACTLY 4 distinct, plausible options labeled "A) ...", "B) ...", "C) ...", "D) ...".
+3. Provide the full correct answer clearly stated.
+4. Provide an explanation / marking scheme point for the teacher's answer key at the end of the exam paper.
+5. Assign marks to each question (e.g. 1 mark for MCQ, 2-5 for short answer).
 
-Format your response strictly as valid JSON adhering to the provided schema.
+Return ONLY valid JSON matching this schema:
+{
+  "detectedSubject": "${subject}",
+  "suggestedTotalMarks": ${questionCount * 2},
+  "suggestedTimeMinutes": ${questionCount * 3},
+  "summary": "Generated from study material",
+  "questions": [
+    {
+      "number": 1,
+      "type": "multiple_choice",
+      "question": "Question text here?",
+      "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+      "answer": "A) Option 1",
+      "explanation": "Rationale for answer key",
+      "marks": 1,
+      "section": "SECTION A: OBJECTIVE"
+    }
+  ]
+}
 `;
 
+    // 1. If Groq selected and text available (or text extracted)
+    const effectiveGroqKey = clientKey || process.env.GROQ_API_KEY;
+    if (customProvider === 'groq' && effectiveGroqKey && (!images || images.length === 0)) {
+      const messages = [
+        {
+          role: 'system',
+          content: 'You are an educational test designer that produces JSON exam question papers.'
+        },
+        {
+          role: 'user',
+          content: `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent}`
+        }
+      ];
+
+      const groqText = await callGroqChat(effectiveGroqKey, messages, true);
+      const parsed = JSON.parse(groqText);
+      return res.json({ success: true, data: parsed });
+    }
+
+    // 2. If OpenRouter selected
+    const effectiveOpenRouterKey = clientKey || process.env.OPENROUTER_API_KEY;
+    if (customProvider === 'openrouter' && effectiveOpenRouterKey && (!images || images.length === 0)) {
+      const messages = [
+        {
+          role: 'system',
+          content: 'You are an educational test designer that produces JSON exam question papers.'
+        },
+        {
+          role: 'user',
+          content: `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent}`
+        }
+      ];
+
+      const orText = await callOpenRouterChat(effectiveOpenRouterKey, messages, true);
+      const parsed = JSON.parse(orText);
+      return res.json({ success: true, data: parsed });
+    }
+
+    // 3. Default: Gemini (Supports Multimodal images + text)
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'GEMINI_API_KEY is not configured on the server. Please add your free key in AI Settings.'
+      });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
     const contents: any[] = [];
 
-    // Attach any uploaded document images or PDF pages
-    if (Array.isArray(images) && images.length > 0) {
+    if (images && images.length > 0) {
       for (const img of images) {
-        if (img && img.data && img.mimeType) {
-          contents.push({
-            inlineData: {
-              mimeType: img.mimeType,
-              data: img.data.replace(/^data:[^;]+;base64,/, '')
-            }
-          });
-        }
+        contents.push({
+          inlineData: {
+            mimeType: img.mimeType || 'image/jpeg',
+            data: img.data.replace(/^data:[^;]+;base64,/, '')
+          }
+        });
       }
     }
 
-    // Attach text content and prompt
     if (textContent.trim()) {
       contents.push({
-        text: `EXCERPTS / NOTES FROM TEXTBOOK OR NOTEBOOK:\n${textContent}\n\n${prompt}`
+        text: `TEXTBOOK / LESSON TEXT MATERIAL:\n${textContent}\n\n${promptText}`
       });
     } else {
       contents.push({
-        text: prompt
+        text: promptText
       });
     }
 
@@ -164,25 +275,20 @@ Format your response strictly as valid JSON adhering to the provided schema.
               }
             }
           },
-          required: ['questions', 'suggestedTotalMarks']
+          required: ['detectedSubject', 'questions', 'suggestedTotalMarks']
         }
       }
     });
 
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error('Received empty response from Gemini model');
-    }
-
-    const parsedData = JSON.parse(responseText);
+    const parsedData = JSON.parse(response.text || '{}');
     res.json({
       success: true,
       data: parsedData
     });
-  } catch (err: any) {
-    console.error('Error generating exam questions:', err);
+  } catch (error: any) {
+    console.error('Error generating questions:', error);
     res.status(500).json({
-      error: err.message || 'Failed to generate questions. Please try again.'
+      error: error.message || 'Failed to generate questions from material.'
     });
   }
 });
@@ -190,17 +296,14 @@ Format your response strictly as valid JSON adhering to the provided schema.
 // Endpoint: AI refine speech transcript into formatted question
 app.post('/api/refine-speech-question', async (req, res) => {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
-    }
+    const customProvider = req.headers['x-ai-provider'] as string;
+    const clientKey = req.headers['x-custom-api-key'] as string;
 
     const { rawTranscript, subject = 'General', currentQuestionNumber = 1 } = req.body;
     if (!rawTranscript || !rawTranscript.trim()) {
       return res.status(400).json({ error: 'Transcript is required' });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
     const prompt = `
 A teacher is setting an examination question by speaking aloud into their microphone.
 Convert their raw spoken speech into a well-crafted, grammatically flawless exam question.
@@ -218,8 +321,50 @@ Detect:
 4. The correct answer (if spoken, or infer standard correct answer).
 5. Appropriate marks (default 1 for MCQ/TF, 2 for short answer, 5 for essay if not spoken).
 6. A concise explanation for the answer key at the end of the exam paper.
+
+Return JSON in this format:
+{
+  "number": ${currentQuestionNumber},
+  "type": "multiple_choice",
+  "question": "Question statement here?",
+  "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+  "answer": "A) ...",
+  "explanation": "Why this is correct",
+  "marks": 1
+}
 `;
 
+    // 1. Try Groq if selected
+    const effectiveGroqKey = clientKey || process.env.GROQ_API_KEY;
+    if (customProvider === 'groq' && effectiveGroqKey) {
+      const messages = [
+        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON.' },
+        { role: 'user', content: prompt }
+      ];
+      const groqResp = await callGroqChat(effectiveGroqKey, messages, true);
+      const parsed = JSON.parse(groqResp);
+      return res.json({ success: true, question: parsed });
+    }
+
+    // 2. Try OpenRouter if selected
+    const effectiveOpenRouterKey = clientKey || process.env.OPENROUTER_API_KEY;
+    if (customProvider === 'openrouter' && effectiveOpenRouterKey) {
+      const messages = [
+        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON.' },
+        { role: 'user', content: prompt }
+      ];
+      const orResp = await callOpenRouterChat(effectiveOpenRouterKey, messages, true);
+      const parsed = JSON.parse(orResp);
+      return res.json({ success: true, question: parsed });
+    }
+
+    // 3. Default: Gemini
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY not configured. Switch to Groq in Settings.' });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: prompt,
@@ -253,7 +398,7 @@ Detect:
   }
 });
 
-// Endpoint: AI Audio Transcription fallback (when Web Speech API is not available or for voice recordings)
+// Endpoint: AI Audio Transcription fallback
 app.post('/api/transcribe-audio', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;

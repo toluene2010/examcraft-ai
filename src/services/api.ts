@@ -20,15 +20,31 @@ export interface GenerateQuestionsResponse {
   };
 }
 
+function getProviderHeaders(): Record<string, string> {
+  const provider = localStorage.getItem('examcraft_ai_provider') || 'gemini';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-ai-provider': provider
+  };
+
+  if (provider === 'groq') {
+    const customKey = localStorage.getItem('examcraft_groq_key');
+    if (customKey) headers['x-custom-api-key'] = customKey;
+  } else if (provider === 'openrouter') {
+    const customKey = localStorage.getItem('examcraft_openrouter_key');
+    if (customKey) headers['x-custom-api-key'] = customKey;
+  }
+
+  return headers;
+}
+
 export async function generateQuestionsFromMaterial(
   payload: TextbookUploadPayload,
   options: GenerateOptions
 ): Promise<GenerateQuestionsResponse> {
   const response = await fetch('/api/generate-questions', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: getProviderHeaders(),
     body: JSON.stringify({
       textContent: payload.textContent || '',
       images: payload.images.map((img) => ({
@@ -54,9 +70,7 @@ export async function refineSpokenQuestion(
 ): Promise<ExamQuestion> {
   const response = await fetch('/api/refine-speech-question', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: getProviderHeaders(),
     body: JSON.stringify({
       rawTranscript,
       subject,

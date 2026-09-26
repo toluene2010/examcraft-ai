@@ -9,7 +9,9 @@ import {
   Sparkles,
   FileCheck,
   RotateCcw,
-  Share2
+  Share2,
+  Settings,
+  Cpu
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -19,6 +21,7 @@ interface HeaderProps {
   onOpenSpeechModal: () => void;
   onOpenUploadModal: () => void;
   onOpenShareModal: () => void;
+  onOpenSettingsModal: () => void;
   onAddManualQuestion: () => void;
   onResetExam: () => void;
   totalQuestions: number;
@@ -31,11 +34,14 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSpeechModal,
   onOpenUploadModal,
   onOpenShareModal,
+  onOpenSettingsModal,
   onAddManualQuestion,
   onResetExam,
   totalQuestions,
   totalMarks
 }) => {
+  const currentProvider = (typeof window !== 'undefined' && localStorage.getItem('examcraft_ai_provider')) || 'gemini';
+
   return (
     <header className="no-print sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
@@ -54,7 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
-              Speech-to-Text &amp; Textbook AI Question Setter
+              Speech-to-Text &amp; Free AI Exam Setter
             </p>
           </div>
         </div>
@@ -87,6 +93,19 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Action buttons */}
         <div className="flex items-center gap-2">
+          {/* AI Provider Switch Button */}
+          <button
+            onClick={onOpenSettingsModal}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer"
+            title="Switch AI Engine: Groq (Free), OpenRouter (Free), or Gemini"
+          >
+            <Cpu className="w-3.5 h-3.5 text-amber-500" />
+            <span className="capitalize hidden lg:inline">{currentProvider}</span>
+            <span className="px-1.5 py-0.2 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+              AI
+            </span>
+          </button>
+
           {/* Real-time speech dictation trigger */}
           <button
             onClick={onOpenSpeechModal}
@@ -114,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
             title="Send or share exam paper with users via link, email, text, or PDF"
           >
             <Share2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span className="hidden sm:inline">Send / Share</span>
+            <span className="hidden sm:inline">Share</span>
           </button>
 
           {/* Direct Print Button */}
