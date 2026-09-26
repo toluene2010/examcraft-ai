@@ -17,39 +17,33 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Helper: Call Groq API (Supports both LLaMA 3.3 text and vision models with auto-fallback)
+// Helper: Call Groq API (Text + fallback models)
 async function callGroqChat(apiKey: string, messages: any[], hasImages = false, responseJson = true) {
-  // If images are provided, try Groq's active vision models in order of availability
-  const modelsToTry = hasImages
-    ? ['llama-3.2-90b-vision-preview', 'llama-3.2-11b-vision', 'llama-3.3-70b-versatile']
-    : ['llama-3.3-70b-versatile'];
+  // If images are provided or text, use reliable Groq endpoints
+  const modelsToTry = ['llama-3.3-70b-versatile'];
 
   let lastError: any = null;
 
   for (const model of modelsToTry) {
     try {
-      const isVision = model.includes('vision');
-      // If we fall back to a non-vision model, ensure messages only have text
-      let safeMessages = messages;
-      if (!isVision && hasImages) {
-        safeMessages = messages.map((m: any) => {
-          if (Array.isArray(m.content)) {
-            const textParts = m.content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text)
-              .join('\n');
-            return { ...m, content: textParts || 'Analyze the provided curriculum material.' };
-          }
-          return m;
-        });
-      }
+      // If messages contain image_url parts but model is text-only, convert to clean text prompt
+      const safeMessages = messages.map((m: any) => {
+        if (Array.isArray(m.content)) {
+          const textParts = m.content
+            .filter((c: any) => c.type === 'text')
+            .map((c: any) => c.text)
+            .join('\n');
+          return { ...m, content: textParts || 'Analyze the provided curriculum material.' };
+        }
+        return m;
+      });
 
       const body: any = {
         model,
         messages: safeMessages,
         temperature: 0.2
       };
-      if (responseJson && !isVision) {
+      if (responseJson) {
         body.response_format = { type: 'json_object' };
       }
 
@@ -64,11 +58,6 @@ async function callGroqChat(apiKey: string, messages: any[], hasImages = false, 
 
       if (!res.ok) {
         const errorText = await res.text();
-        // If model decommissioned or not found, try next candidate
-        if (res.status === 400 && (errorText.includes('decommissioned') || errorText.includes('model_not_found') || errorText.includes('not supported'))) {
-          lastError = new Error(errorText);
-          continue;
-        }
         throw new Error(`Groq API error (${res.status}): ${errorText}`);
       }
 
@@ -76,9 +65,6 @@ async function callGroqChat(apiKey: string, messages: any[], hasImages = false, 
       return data.choices?.[0]?.message?.content || '';
     } catch (err: any) {
       lastError = err;
-      if (err.message && err.message.includes('decommissioned')) {
-        continue;
-      }
       throw err;
     }
   }
@@ -86,14 +72,19 @@ async function callGroqChat(apiKey: string, messages: any[], hasImages = false, 
   throw lastError || new Error('Failed to generate from Groq models');
 }
 
-// Helper: Call OpenRouter API
-async function callOpenRouterChat(apiKey: string, messages: any[], responseJson = true) {
+// Helper: Call OpenRouter API (Supports Multimodal Vision & OCR with gpt-4o-mini / free models!)
+async function callOpenRouterChat(apiKey: string, messages: any[], hasImages = false, responseJson = true) {
+  // If images are uploaded, use gpt-4o-mini or mistral/pixtral; if text only, use versatile instruct
+  const model = hasImages
+    ? 'openai/gpt-4o-mini'
+    : 'meta-llama/llama-3.3-70b-instruct:free';
+
   const body: any = {
-    model: 'meta-llama/llama-3.3-70b-instruct:free',
+    model,
     messages,
     temperature: 0.2
   };
-  if (responseJson) {
+  if (responseJson && !hasImages) {
     body.response_format = { type: 'json_object' };
   }
 
@@ -214,47 +205,50 @@ Return ONLY a valid JSON object matching this schema:
 }
 `;
 
-    // 1. If Groq selected OR if Groq key provided
-    const effectiveGroqKey = clientKey || process.env.GROQ_API_KEY;
-    if ((customProvider === 'groq' || (!process.env.GEMINI_API_KEY && effectiveGroqKey)) && effectiveGroqKey) {
-      const hasImages = images && images.length > 0;
-      
-      const contentParts: any[] = [];
-      if (textContent.trim()) {
-        contentParts.push({ type: 'text', text: `TEXTBOOK MATERIAL CONTENT:\n${textContent}\n\n${promptText}` });
-      } else {
-        contentParts.push({ type: 'text', text: promptText });
-      }
+    const hasImages = images && images.length > 0;
 
-      if (hasImages) {
-        for (const img of images) {
-          const imgUrl = img.data.startsWith('data:') ? img.data : `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`;
-          contentParts.push({
-            type: 'image_url',
-            image_url: { url: imgUrl }
-          });
-        }
-      }
-
-      const messages = [
-        {
-          role: 'system',
-          content: 'You are an educational test designer that produces JSON exam question papers. Always return strictly valid JSON only.'
-        },
-        {
-          role: 'user',
-          content: hasImages ? contentParts : `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent}`
-        }
-      ];
-
-      const groqText = await callGroqChat(effectiveGroqKey, messages, hasImages, true);
-      const parsed = extractJsonFromText(groqText);
-      return res.json({ success: true, data: parsed });
+    // Build multimodal content payload
+    const contentParts: any[] = [];
+    if (textContent.trim()) {
+      contentParts.push({ type: 'text', text: `TEXTBOOK MATERIAL CONTENT:\n${textContent}\n\n${promptText}` });
+    } else {
+      contentParts.push({ type: 'text', text: promptText });
     }
 
-    // 2. If OpenRouter selected
-    const effectiveOpenRouterKey = clientKey || process.env.OPENROUTER_API_KEY;
-    if (customProvider === 'openrouter' && effectiveOpenRouterKey && (!images || images.length === 0)) {
+    if (hasImages) {
+      for (const img of images) {
+        const imgUrl = img.data.startsWith('data:') ? img.data : `data:${img.mimeType || 'image/jpeg'};base64,${img.data}`;
+        contentParts.push({
+          type: 'image_url',
+          image_url: { url: imgUrl }
+        });
+      }
+    }
+
+    // 1. If OpenRouter Key is provided (Supports gpt-4o-mini Vision, OCR, reading images, & text!)
+    const effectiveOpenRouterKey = (clientKey && clientKey.startsWith('sk-or-')) ? clientKey : process.env.OPENROUTER_API_KEY;
+    if (customProvider === 'openrouter' || (clientKey && clientKey.startsWith('sk-or-')) || (hasImages && effectiveOpenRouterKey)) {
+      if (effectiveOpenRouterKey) {
+        const messages = [
+          {
+            role: 'system',
+            content: 'You are an educational test designer that produces JSON exam question papers. Always return strictly valid JSON only.'
+          },
+          {
+            role: 'user',
+            content: hasImages ? contentParts : `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent}`
+          }
+        ];
+
+        const orText = await callOpenRouterChat(effectiveOpenRouterKey, messages, hasImages, true);
+        const parsed = extractJsonFromText(orText);
+        return res.json({ success: true, data: parsed });
+      }
+    }
+
+    // 2. If Groq selected (or Groq key provided: gsk_...)
+    const effectiveGroqKey = (clientKey && clientKey.startsWith('gsk_')) ? clientKey : process.env.GROQ_API_KEY;
+    if ((customProvider === 'groq' || (clientKey && clientKey.startsWith('gsk_'))) && effectiveGroqKey) {
       const messages = [
         {
           role: 'system',
@@ -262,12 +256,12 @@ Return ONLY a valid JSON object matching this schema:
         },
         {
           role: 'user',
-          content: `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent}`
+          content: `${promptText}\n\nTEXTBOOK MATERIAL CONTENT:\n${textContent || 'Standard curriculum questions based on options specified'}`
         }
       ];
 
-      const orText = await callOpenRouterChat(effectiveOpenRouterKey, messages, true);
-      const parsed = extractJsonFromText(orText);
+      const groqText = await callGroqChat(effectiveGroqKey, messages, false, true);
+      const parsed = extractJsonFromText(groqText);
       return res.json({ success: true, data: parsed });
     }
 
@@ -275,7 +269,7 @@ Return ONLY a valid JSON object matching this schema:
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(400).json({
-        error: 'Please click the "AI Key" button at the top and confirm your free Groq key.'
+        error: 'Please click the "AI Key" button at the top and confirm your API key (Groq or OpenRouter), or click "⚡ Offline Instant" to generate questions without any API.'
       });
     }
 
@@ -409,34 +403,38 @@ Return JSON in this format:
 }
 `;
 
-    // 1. Try Groq if selected or if Groq key exists
-    const effectiveGroqKey = clientKey || process.env.GROQ_API_KEY;
-    if ((customProvider === 'groq' || (!process.env.GEMINI_API_KEY && effectiveGroqKey)) && effectiveGroqKey) {
-      const messages = [
-        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON. Always return valid JSON only.' },
-        { role: 'user', content: prompt }
-      ];
-      const groqResp = await callGroqChat(effectiveGroqKey, messages, false, true);
-      const parsed = extractJsonFromText(groqResp);
-      return res.json({ success: true, question: parsed });
+    // 1. Try OpenRouter if key available
+    const effectiveOpenRouterKey = (clientKey && clientKey.startsWith('sk-or-')) ? clientKey : process.env.OPENROUTER_API_KEY;
+    if (customProvider === 'openrouter' || (clientKey && clientKey.startsWith('sk-or-'))) {
+      if (effectiveOpenRouterKey) {
+        const messages = [
+          { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON. Always return valid JSON only.' },
+          { role: 'user', content: prompt }
+        ];
+        const orResp = await callOpenRouterChat(effectiveOpenRouterKey, messages, false, true);
+        const parsed = extractJsonFromText(orResp);
+        return res.json({ success: true, question: parsed });
+      }
     }
 
-    // 2. Try OpenRouter if selected
-    const effectiveOpenRouterKey = clientKey || process.env.OPENROUTER_API_KEY;
-    if (customProvider === 'openrouter' && effectiveOpenRouterKey) {
-      const messages = [
-        { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON. Always return valid JSON only.' },
-        { role: 'user', content: prompt }
-      ];
-      const orResp = await callOpenRouterChat(effectiveOpenRouterKey, messages, true);
-      const parsed = extractJsonFromText(orResp);
-      return res.json({ success: true, question: parsed });
+    // 2. Try Groq if selected or if Groq key exists
+    const effectiveGroqKey = (clientKey && clientKey.startsWith('gsk_')) ? clientKey : process.env.GROQ_API_KEY;
+    if (customProvider === 'groq' || (clientKey && clientKey.startsWith('gsk_'))) {
+      if (effectiveGroqKey) {
+        const messages = [
+          { role: 'system', content: 'You are an exam setter formatting spoken questions into clean JSON. Always return valid JSON only.' },
+          { role: 'user', content: prompt }
+        ];
+        const groqResp = await callGroqChat(effectiveGroqKey, messages, false, true);
+        const parsed = extractJsonFromText(groqResp);
+        return res.json({ success: true, question: parsed });
+      }
     }
 
-    // 3. Default: Gemini
+    // 3. Fallback: Gemini
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(400).json({ error: 'Please select Groq in AI Settings and paste your free Groq key.' });
+      return res.status(400).json({ error: 'Please configure your Groq or OpenRouter key in AI Settings.' });
     }
 
     const ai = new GoogleGenAI({ apiKey });

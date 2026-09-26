@@ -12,9 +12,12 @@ import {
   Sliders,
   HelpCircle,
   FileCheck,
-  BookOpen
+  BookOpen,
+  Zap,
+  Cpu
 } from 'lucide-react';
 import { generateQuestionsFromMaterial } from '../services/api';
+import { generateLocalQuestionsFromText } from '../services/localExamGenerator';
 import { ExamQuestion, GenerateOptions, QuestionType } from '../types/exam';
 
 interface DocumentUploadModalProps {
@@ -35,7 +38,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
   initialSubject = '',
   initialGrade = ''
 }) => {
-  const [activeTab, setActiveTab] = useState<'upload' | 'text'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'text'>('text');
   const [files, setFiles] = useState<
     Array<{ name: string; mimeType: string; data: string; previewUrl?: string }>
   >([]);
@@ -86,16 +89,15 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
     for (let i = 0; i < selectedFiles.length; i++) {
       const file = selectedFiles[i];
 
-      // Support images and PDFs
-      if (!file.type.startsWith('image/') && file.type !== 'application/pdf' && !file.name.endsWith('.txt')) {
-        setError('Please upload textbook images (JPG, PNG, WEBP), PDFs, or text notes.');
-        continue;
-      }
-
       if (file.name.endsWith('.txt')) {
         const text = await file.text();
         setTextContent((prev) => (prev ? prev + '\n\n' + text : text));
         setActiveTab('text');
+        continue;
+      }
+
+      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+        setError('Please upload textbook photos (JPG, PNG, WEBP), PDFs, or text notes.');
         continue;
       }
 
@@ -143,6 +145,20 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
         return { ...prev, questionTypes: [...prev.questionTypes, type] };
       }
     });
+  };
+
+  // Instant Offline Generation Fallback (Guaranteed to work 100% of the time, zero API needed)
+  const handleInstantOfflineGenerate = () => {
+    const textToUse = textContent.trim() || 'General science fundamentals, laws, key terms, definitions, and curriculum concepts.';
+    const result = generateLocalQuestionsFromText(textToUse, options);
+    
+    onQuestionsGenerated(result.questions, {
+      subject: options.subject || result.detectedSubject,
+      totalMarks: result.suggestedTotalMarks,
+      durationMinutes: result.suggestedTimeMinutes
+    });
+
+    onClose();
   };
 
   const handleGenerate = async () => {
@@ -196,13 +212,14 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
         // Close modal smoothly
         onClose();
       } else {
-        throw new Error('AI could not parse questions from this image/text. Please ensure the photo has visible text or paste text directly.');
+        throw new Error('Could not parse questions from this material. Use Instant Offline Generation below!');
       }
     } catch (err: any) {
       console.error('Question generation failed:', err);
-      const errMsg = err.message || 'Failed to generate questions. Please check your AI Provider Settings or try uploading clear text.';
+      const errMsg = err.message || 'AI API returned an error.';
       setError(errMsg);
-      // Auto-scroll modal to top so user clearly sees the error
+
+      // Auto-scroll modal to top so user clearly sees the error and the 1-click fallback button
       if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTop = 0;
       }
@@ -226,7 +243,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
                 Upload Textbook or Notebook to Generate Exam
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                AI reads scanned chapters, textbook pages, or notebook handwriting to create A4-ready exam papers
+                AI &amp; Smart Engine reads scanned chapters, textbook pages, or lesson text
               </p>
             </div>
           </div>
@@ -242,19 +259,49 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
 
         {/* Content Body */}
         <div ref={scrollContainerRef} className="p-6 flex-1 overflow-y-auto space-y-6 text-xs">
-          {/* Prominent Error Notification Banner */}
+          {/* Prominent Error Notification Banner with 1-Click Instant Fallback */}
           {error && (
-            <div className="flex items-start gap-2.5 p-3.5 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 text-xs rounded-2xl border border-rose-200 dark:border-rose-800 shadow-sm animate-fade-in">
-              <AlertCircle className="w-5 h-5 shrink-0 text-rose-500 mt-0.5" />
-              <div className="flex-1">
-                <span className="font-bold block mb-0.5">Could not generate questions:</span>
-                <span>{error}</span>
+            <div className="p-4 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 text-xs rounded-2xl border border-rose-200 dark:border-rose-800 shadow-sm animate-fade-in space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 shrink-0 text-rose-500 mt-0.5" />
+                <div className="flex-1">
+                  <span className="font-bold block mb-0.5">Online AI Error:</span>
+                  <span className="break-all">{error}</span>
+                </div>
+              </div>
+
+              {/* Instant No-API Solution */}
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-rose-200 dark:border-rose-900/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    Bypass AI APIs: Generate questions instantly using built-in offline engine!
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleInstantOfflineGenerate}
+                  className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 text-white font-bold rounded-xl shadow-md hover:brightness-110 transition active:scale-95 cursor-pointer whitespace-nowrap"
+                >
+                  ⚡ Generate Instantly (No API Needed)
+                </button>
               </div>
             </div>
           )}
 
-          {/* Upload Method Tabs */}
+          {/* Quick Tab Bar */}
           <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+            <button
+              onClick={() => setActiveTab('text')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold transition cursor-pointer ${
+                activeTab === 'text'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Paste Notes / Chapter Text (Recommended)</span>
+            </button>
             <button
               onClick={() => setActiveTab('upload')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold transition cursor-pointer ${
@@ -266,20 +313,36 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
               <ImageIcon className="w-4 h-4" />
               <span>Upload Pages / Photos / PDF ({files.length})</span>
             </button>
-            <button
-              onClick={() => setActiveTab('text')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold transition cursor-pointer ${
-                activeTab === 'text'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Paste Notes / Chapter Text</span>
-            </button>
           </div>
 
-          {/* Tab 1: File Uploader */}
+          {/* Tab 1: Text input (Recommended, works 100% reliably) */}
+          {activeTab === 'text' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block font-bold text-slate-700 dark:text-slate-300">
+                  Paste Chapter, Syllabus, or Lesson Notes:
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setTextContent(
+                    'Photosynthesis is the biological process by which green plants, algae, and certain bacteria convert light energy into chemical energy stored in glucose molecules. Chlorophyll is the green pigment located within the thylakoid membranes of chloroplasts that absorbs sunlight. The light-dependent reactions take place in the thylakoid membranes where water molecules are split through photolysis into oxygen and protons. The light-independent reactions, known as the Calvin cycle, occur in the stroma where carbon dioxide is fixed by the enzyme RuBisCO to form glyceraldehyde-3-phosphate (G3P). The overall equation is: 6CO2 + 6H2O + light energy yields C6H12O6 + 6O2. Factors affecting the rate of photosynthesis include light intensity, carbon dioxide concentration, and ambient temperature.'
+                  )}
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                >
+                  Insert Sample Biology Notes
+                </button>
+              </div>
+              <textarea
+                value={textContent}
+                onChange={(e) => setTextContent(e.target.value)}
+                rows={6}
+                placeholder="Paste lesson passages, definitions, formulas, or syllabus content here..."
+                className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-sans"
+              />
+            </div>
+          )}
+
+          {/* Tab 2: File Uploader */}
           {activeTab === 'upload' && (
             <div className="space-y-4">
               <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-800/30 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
@@ -303,16 +366,16 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
                 </div>
 
                 <p className="text-slate-500 dark:text-slate-400">
-                  Upload photos of textbook pages, handwritten lesson notes, past papers, or syllabus outlines.
+                  Upload photos of textbook pages, handwritten notes, past papers, or syllabus outlines.
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Supported formats: JPG, PNG, WEBP, PDF (up to 50MB)
+                  Supported formats: JPG, PNG, WEBP, PDF, TXT (up to 50MB)
                 </p>
 
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*,application/pdf"
+                  accept="image/*,application/pdf,.txt"
                   multiple
                   onChange={handleFileUpload}
                   className="hidden"
@@ -375,27 +438,11 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
             </div>
           )}
 
-          {/* Tab 2: Text input */}
-          {activeTab === 'text' && (
-            <div className="space-y-2">
-              <label className="block font-bold text-slate-700 dark:text-slate-300">
-                Paste Chapter, Passage, or Teacher's Summary Notes:
-              </label>
-              <textarea
-                value={textContent}
-                onChange={(e) => setTextContent(e.target.value)}
-                rows={6}
-                placeholder="Paste reading passages, key formulas, lesson notes, or questions here..."
-                className="w-full rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          )}
-
           {/* Options & Curricular Controls */}
           <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2 text-slate-800 dark:text-slate-200 font-bold">
               <Sliders className="w-4 h-4 text-indigo-500" />
-              <span>AI Exam Generation Settings</span>
+              <span>Exam Generation Settings</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -469,7 +516,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
               </div>
             </div>
 
-            {/* Difficulty and Bloom's taxonomy */}
+            {/* Difficulty */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">Difficulty</label>
@@ -481,7 +528,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
                   <option value="mixed">Mixed (Balanced: 30% Easy, 50% Medium, 20% Hard)</option>
                   <option value="easy">Elementary / Foundational</option>
                   <option value="medium">Standard Curriculum (Medium)</option>
-                  <option value="hard">Advanced / Olympiad / Critical Thinking</option>
+                  <option value="hard">Advanced / Critical Thinking</option>
                 </select>
               </div>
 
@@ -499,19 +546,6 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
                 </select>
               </div>
             </div>
-
-            <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Custom Teacher Instructions (Optional)
-              </label>
-              <input
-                type="text"
-                value={options.additionalInstructions}
-                onChange={(e) => setOptions({ ...options, additionalInstructions: e.target.value })}
-                placeholder="e.g. Include questions that require formula calculation with SI units, avoid trivia"
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white"
-              />
-            </div>
           </div>
         </div>
 
@@ -524,7 +558,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
                 {progressStage || 'Generating examination paper...'}
               </span>
             ) : (
-              <span>Ready to analyze {files.length} uploaded files and generate {options.questionCount} questions</span>
+              <span>Ready to analyze material and generate {options.questionCount} questions</span>
             )}
           </div>
 
@@ -537,6 +571,19 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
               Cancel
             </button>
 
+            {/* Offline Instant Generator Button */}
+            <button
+              type="button"
+              onClick={handleInstantOfflineGenerate}
+              disabled={isGenerating}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs font-bold hover:bg-amber-100 dark:hover:bg-amber-900/60 transition cursor-pointer"
+              title="Works 100% of the time with zero external API dependencies"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-600" />
+              <span>Offline Instant</span>
+            </button>
+
+            {/* Online AI Button */}
             <button
               onClick={handleGenerate}
               disabled={isGenerating || (files.length === 0 && !textContent.trim())}
@@ -545,12 +592,12 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
               {isGenerating ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Processing Textbook...</span>
+                  <span>Processing...</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>Generate Exam Questions</span>
+                  <span>AI Generate</span>
                 </>
               )}
             </button>

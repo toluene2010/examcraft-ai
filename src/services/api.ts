@@ -25,11 +25,13 @@ function getProviderHeaders(): Record<string, string> {
   const groqKey = localStorage.getItem('examcraft_groq_key');
   const openRouterKey = localStorage.getItem('examcraft_openrouter_key');
 
-  // If user has saved a Groq key, automatically prioritize Groq
-  if (groqKey && !provider) {
+  // If user has saved an OpenRouter key, automatically default to OpenRouter
+  if (openRouterKey && !provider) {
+    provider = 'openrouter';
+  } else if (groqKey && !provider) {
     provider = 'groq';
   } else if (!provider) {
-    provider = groqKey ? 'groq' : 'gemini';
+    provider = openRouterKey ? 'openrouter' : (groqKey ? 'groq' : 'openrouter');
   }
 
   const headers: Record<string, string> = {
@@ -37,12 +39,13 @@ function getProviderHeaders(): Record<string, string> {
     'x-ai-provider': provider
   };
 
-  if (provider === 'groq' && groqKey) {
+  if (provider === 'openrouter' && openRouterKey) {
+    headers['x-custom-api-key'] = openRouterKey;
+  } else if (provider === 'groq' && groqKey) {
     headers['x-custom-api-key'] = groqKey;
-  } else if (provider === 'openrouter' && openRouterKey) {
+  } else if (openRouterKey) {
     headers['x-custom-api-key'] = openRouterKey;
   } else if (groqKey) {
-    // If a Groq key exists, send it anyway as fallback
     headers['x-custom-api-key'] = groqKey;
   }
 
